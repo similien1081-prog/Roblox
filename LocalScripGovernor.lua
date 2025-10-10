@@ -7,9 +7,12 @@ local KeyActionLib = require(script.Parent.KeyActionLib)
 
 -- Connect the HoverModule's action trigger to the Actions module
 HoverModule.OnActionTriggered = function(target, actionIdentifier)
-	local success = Actions:Execute(target, actionIdentifier)
-	if success then
+	local action = Actions[actionIdentifier]
+	if action then
+		action(target) -- run the function directly
 		KeyActionLib:PlaySuccess()
 		HoverModule:HideUI()
+	else
+		warn("No action found for:", actionIdentifier)
 	end
 end
