@@ -52,12 +52,6 @@ local function createRow(actionData, callback)
 	row.Visible = true
 	row.Parent = rowsFrame
 
-	-- Set up click handling
-	local button = row:FindFirstChild("ImageButton")
-	if button then
-		button.MouseButton1Click:Connect(callback)
-	end
-
 	return row
 end
 
@@ -101,18 +95,13 @@ function HoverModule:ShowUI(target)
 		self:HideUI()
 		return
 	end
-
-	-- Update main text
+	
 	actionText.Text = target:GetAttribute("ActionText") or target.Name
 	objectText.Text = target:GetAttribute("ObjectText") or ""
-
-	-- Clear existing rows
+	
 	clearRows()
-
-	-- Build new rows from attributes and store for key handling
 	currentActions = buildActionsFromAttributes(target)
 
-	-- Only show UI if there are actions available
 	if #currentActions == 0 then
 		self:HideUI()
 		return
@@ -129,27 +118,22 @@ function HoverModule:ShowUI(target)
 		)
 	end
 	
-	local rowHeight = 28 -- Height of each row
-	local headerHeight = 56 -- Height of the header section (actionText + objectText)
+	local rowHeight = 28
+	local headerHeight = 56 
 	local visibleRowCount = #currentActions
-
-	-- Calculate new heights
 	local totalRowsHeight = visibleRowCount * rowHeight
-	local newFrameHeight = math.min(headerHeight + totalRowsHeight, 300) -- Max height of 300
+	local newFrameHeight = math.min(headerHeight + totalRowsHeight, 300) 
 
-	-- Update both frame sizes
 	mainFrame.Size = UDim2.new(0, 360, 0, newFrameHeight)
 	rowsFrame.Size = UDim2.new(1, -12, 0, totalRowsHeight)
 
-	-- Position rows with proper spacing
 	for i, row in ipairs(rowsFrame:GetChildren()) do
 		if row ~= RowTemplate then
 			row.Position = UDim2.new(0, 0, 0, (i-1) * rowHeight)
 		end
 	end
-
-	mainFrame.Visible = true
 	
+	mainFrame.Visible = true
 end
 
 function HoverModule:HideUI()
