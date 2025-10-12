@@ -7,17 +7,16 @@ local UserInputService = game:GetService("UserInputService")
 local CollectionService = game:GetService("CollectionService")
 
 -- Constants
-local MAX_DISTANCE = 3
-local RAY_THROTTLE = 0.1
+local MAX_DISTANCE = 12
 local INTERACT_TAG = "Interactable"
 
 -- State
 local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
+local mouse = player:GetMouse()
 local currentTarget = nil
-local lastRayTime = 0
 local mousePosition = Vector2.new(0, 0)
 local currentActions = {}  -- Store current actions for key handling
+local actionRows = {}
 
 -- UI References
 local Screengui = player:WaitForChild("PlayerGui"):WaitForChild("MouseInteractUI")
@@ -39,9 +38,19 @@ local function clearRows()
 	end
 end
 
+local function getActionRowCount()
+	local count = 0
+	for _, child in ipairs(rowsFrame:GetChildren()) do
+		if child:IsA("Frame") and child ~= RowTemplate and child.Visible then
+			count = count + 1
+		end
+	end
+	return count
+end
+
 local function createRow(actionData, callback)
 	local row = RowTemplate:Clone()
-	row.Name = "Row_" .. tostring(#rowsFrame:GetChildren())
+	row.Name = "Row_" .. tostring(getActionRowCount() + 1)
 
 	local keyLabel = row:FindFirstChild("Key")
 	local actionLabel = row:FindFirstChild("Label")
@@ -52,6 +61,9 @@ local function createRow(actionData, callback)
 	row.Visible = true
 	row.Parent = rowsFrame
 
+	actionRows[actionData.identifier] = row
+
+
 	return row
 end
 
@@ -61,10 +73,10 @@ local function isInRange(target)
 	local character = player.Character
 	if not character then return false end
 
-	local humanoid = character:FindFirstChild("HumanoidRootPart")
-	if not humanoid then return false end
+	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+	if not humanoidRootPart then return false end
 
-	return (humanoid.Position - target.Position).Magnitude <= MAX_DISTANCE
+	return (humanoidRootPart.Position - target.Position).Magnitude <= MAX_DISTANCE
 end
 
 local function buildActionsFromAttributes(target)
@@ -95,10 +107,10 @@ function HoverModule:ShowUI(target)
 		self:HideUI()
 		return
 	end
-	
+
 	actionText.Text = target:GetAttribute("ActionText") or target.Name
 	objectText.Text = target:GetAttribute("ObjectText") or ""
-	
+
 	clearRows()
 	currentActions = buildActionsFromAttributes(target)
 
@@ -117,7 +129,7 @@ function HoverModule:ShowUI(target)
 			end
 		)
 	end
-	
+
 	local rowHeight = 28
 	local headerHeight = 56 
 	local visibleRowCount = #currentActions
@@ -127,12 +139,14 @@ function HoverModule:ShowUI(target)
 	mainFrame.Size = UDim2.new(0, 360, 0, newFrameHeight)
 	rowsFrame.Size = UDim2.new(1, -12, 0, totalRowsHeight)
 
-	for i, row in ipairs(rowsFrame:GetChildren()) do
-		if row ~= RowTemplate then
-			row.Position = UDim2.new(0, 0, 0, (i-1) * rowHeight)
+	local rowIndex = 0
+	for _, row in ipairs(rowsFrame:GetChildren()) do
+		if row ~= RowTemplate and row.Visible then
+			row.Position = UDim2.new(0, 0, 0, rowIndex * rowHeight)
+			rowIndex += 1
 		end
 	end
-	
+
 	mainFrame.Visible = true
 end
 
@@ -143,9 +157,34 @@ function HoverModule:HideUI()
 	currentActions = {}
 end
 
+-- Clamp UI to screen bounds
+
+function HoverModule:FlashHideShowAction(actionIdentifier)
+	local row = actionRows[actionIdentifier]
+	if not row then return end
+
+	local function getField(name) return row:FindFirstChild(name) end
+	local label, image = getField("Label"), getField("ImageFrame")
+	local origLabel, origImg = label and label.TextColor3, image and image.ImageColor3
+	local yellow = Color3.fromRGB(255, 193, 40)
+
+	if label then label.TextColor3 = yellow end
+	if image then image.ImageColor3 = yellow end
+
+	delay(0.08, function()
+		row.Visible = false
+		delay(0.08, function()
+			row.Visible = true
+			if label and origLabel then label.TextColor3 = origLabel end
+			if image and origImg then image.ImageColor3 = origImg end
+
+		end)
+	end)
+end
+
 function HoverModule:UpdatePosition(position)
 	if mainFrame.Visible then
-		mainFrame.Position = UDim2.new(0, position.X + 16, 0, position.Y + 16)
+		mainFrame.Position = UDim2.new(0, position.X + 32, 0, position.Y + 38)
 	end
 end
 
@@ -153,8 +192,9 @@ function HoverModule:TriggerAction(target, actionIdentifier)
 	if self.OnActionTriggered then
 		self.OnActionTriggered(target, actionIdentifier)
 	end
-end
+	self:FlashHideShowAction(actionIdentifier)
 
+end
 -- Input handling
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
@@ -176,21 +216,17 @@ end)
 
 UserInputService.InputChanged:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseMovement then
-		mousePosition = UserInputService:GetMouseLocation()
+		mousePosition = Vector2.new(mouse.X, mouse.Y)
 		HoverModule:UpdatePosition(mousePosition)
 	end
 end)
 
--- Mouse movement detection with range check
+-- Mouse movement detection using Mouse.Target
 RunService.RenderStepped:Connect(function()
-	local now = tick()
-	if now - lastRayTime < RAY_THROTTLE then return end
-	lastRayTime = now
+	local target = mouse.Target
 
-	local target = player:GetMouse().Target
 	if target and CollectionService:HasTag(target, INTERACT_TAG) then
 		if target ~= currentTarget then
-			-- Only update if in range
 			if isInRange(target) then
 				currentTarget = target
 				HoverModule:ShowUI(target)
