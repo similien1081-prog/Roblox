@@ -11,7 +11,7 @@ HoverModule.OnActionTriggered = function(target, actionIdentifier)
 	if action then
 		action(target) -- run the function directly
 		KeyActionLib:PlaySuccess()
-		HoverModule:HideUI()
+		--HoverModule:HideUI()
 	else
 		warn("No action found for:", actionIdentifier)
 	end
