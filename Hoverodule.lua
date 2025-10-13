@@ -107,7 +107,16 @@ function HoverModule:ShowUI(target)
 		self:HideUI()
 		return
 	end
+	
+	local humanoid = player.Character and player.Character:FindFirstChild("Humanoid")
+	local isSitting = humanoid and humanoid.Sit
+	local allowWhileSitting = target:GetAttribute("CanInteractWhileSitting")
 
+	if isSitting and not allowWhileSitting then
+		self:HideUI()
+		return
+	end
+	
 	actionText.Text = target:GetAttribute("ActionText") or target.Name
 	objectText.Text = target:GetAttribute("ObjectText") or ""
 
@@ -157,7 +166,6 @@ function HoverModule:HideUI()
 	currentActions = {}
 end
 
--- Clamp UI to screen bounds
 
 function HoverModule:FlashHideShowAction(actionIdentifier)
 	local row = actionRows[actionIdentifier]
@@ -184,7 +192,7 @@ end
 
 function HoverModule:UpdatePosition(position)
 	if mainFrame.Visible then
-		mainFrame.Position = UDim2.new(0, position.X + 32, 0, position.Y + 38)
+		mainFrame.Position = UDim2.new(0, position.X + 25, 0, position.Y + 38)
 	end
 end
 
