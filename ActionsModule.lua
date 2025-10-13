@@ -7,6 +7,7 @@ Actions["Sit Down"] = function(seat)
 	local player = game.Players.LocalPlayer
 	if player and player.Character and player.Character:FindFirstChild("Humanoid") then
 		seat:Sit(player.Character.Humanoid)
+		return { hide = "Sit Down" }
 	end
 end
 

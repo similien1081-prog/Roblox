@@ -9,8 +9,13 @@ local KeyActionLib = require(script.Parent.KeyActionLib)
 HoverModule.OnActionTriggered = function(target, actionIdentifier)
 	local action = Actions[actionIdentifier]
 	if action then
-		action(target) -- run the function directly
+		local result = action(target) -- run the function directly and capture return value
 		KeyActionLib:PlaySuccess()
+		
+		-- Check if the action returned a hide request
+		if result and type(result) == "table" and result.hide then
+			HoverModule:HideAction(result.hide)
+		end
 		--HoverModule:HideUI()
 	else
 		warn("No action found for:", actionIdentifier)

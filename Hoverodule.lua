@@ -157,6 +157,46 @@ function HoverModule:HideUI()
 	currentActions = {}
 end
 
+function HoverModule:HideAction(actionIdentifier)
+	-- Remove the action from currentActions list
+	for i = #currentActions, 1, -1 do
+		if currentActions[i].identifier == actionIdentifier then
+			table.remove(currentActions, i)
+			break
+		end
+	end
+	
+	-- Destroy the UI row
+	local row = actionRows[actionIdentifier]
+	if row then
+		row:Destroy()
+		actionRows[actionIdentifier] = nil
+	end
+	
+	-- Refresh the UI display if there are still actions
+	if #currentActions == 0 then
+		self:HideUI()
+	else
+		-- Recalculate and reposition rows
+		local rowHeight = 28
+		local headerHeight = 56
+		local visibleRowCount = #currentActions
+		local totalRowsHeight = visibleRowCount * rowHeight
+		local newFrameHeight = math.min(headerHeight + totalRowsHeight, 300)
+		
+		mainFrame.Size = UDim2.new(0, 360, 0, newFrameHeight)
+		rowsFrame.Size = UDim2.new(1, -12, 0, totalRowsHeight)
+		
+		local rowIndex = 0
+		for _, row in ipairs(rowsFrame:GetChildren()) do
+			if row ~= RowTemplate and row.Visible then
+				row.Position = UDim2.new(0, 0, 0, rowIndex * rowHeight)
+				rowIndex += 1
+			end
+		end
+	end
+end
+
 -- Clamp UI to screen bounds
 
 function HoverModule:FlashHideShowAction(actionIdentifier)
