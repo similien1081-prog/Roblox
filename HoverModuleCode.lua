@@ -5,6 +5,10 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Modules
+local InteractionData = require(ReplicatedStorage:WaitForChild("InteractionData"))
 
 -- Constants
 local MAX_DISTANCE = 12
@@ -15,7 +19,7 @@ local player = Players.LocalPlayer
 local mouse = player:GetMouse()
 local currentTarget = nil
 local mousePosition = Vector2.new(0, 0)
-local currentActions = {}  -- Store current actions for key handling
+local currentActions = {}
 local actionRows = {}
 
 -- UI References
@@ -63,9 +67,9 @@ local function createRow(actionData, callback)
 
 	actionRows[actionData.identifier] = row
 
-
 	return row
 end
+
 
 local function isInRange(target)
 	if not target then return false end
@@ -79,27 +83,12 @@ local function isInRange(target)
 	return (humanoidRootPart.Position - target.Position).Magnitude <= MAX_DISTANCE
 end
 
-local function buildActionsFromAttributes(target)
-	local actions = {}
-	local attrs = target:GetAttributes()
+-- CHANGED: Get interaction data from module instead of attributes
+local function getInteractionData(target)
+	local interactionType = target:GetAttribute("InteractionType")
+	if not interactionType then return nil end
 
-	-- Loop through possible actions (1-20 as per your system)
-	for i = 1, 20 do
-		local actionAttr = attrs["Action" .. i]
-		if not actionAttr then break end
-
-		local label = attrs["Action" .. i .. "_Label"] or actionAttr
-		local key = attrs["Action" .. i .. "_Key"] or ""
-
-		table.insert(actions, {
-			identifier = actionAttr,
-			label = label,
-			key = key,
-			index = i
-		})
-	end
-
-	return actions
+	return InteractionData[interactionType]
 end
 
 function HoverModule:ShowUI(target)
@@ -107,7 +96,7 @@ function HoverModule:ShowUI(target)
 		self:HideUI()
 		return
 	end
-	
+
 	local humanoid = player.Character and player.Character:FindFirstChild("Humanoid")
 	local isSitting = humanoid and humanoid.Sit
 	local allowWhileSitting = target:GetAttribute("CanInteractWhileSitting")
@@ -116,12 +105,19 @@ function HoverModule:ShowUI(target)
 		self:HideUI()
 		return
 	end
-	
-	actionText.Text = target:GetAttribute("ActionText") or target.Name
-	objectText.Text = target:GetAttribute("ObjectText") or ""
+
+	-- CHANGED: Get data from module
+	local data = getInteractionData(target)
+	if not data then
+		self:HideUI()
+		return
+	end
+
+	actionText.Text = data.actionText or target.Name
+	objectText.Text = data.objectText or ""
 
 	clearRows()
-	currentActions = buildActionsFromAttributes(target)
+	currentActions = data.actions or {}
 
 	if #currentActions == 0 then
 		self:HideUI()
@@ -166,7 +162,6 @@ function HoverModule:HideUI()
 	currentActions = {}
 end
 
-
 function HoverModule:FlashHideShowAction(actionIdentifier)
 	local row = actionRows[actionIdentifier]
 	if not row then return end
@@ -185,7 +180,6 @@ function HoverModule:FlashHideShowAction(actionIdentifier)
 			row.Visible = true
 			if label and origLabel then label.TextColor3 = origLabel end
 			if image and origImg then image.ImageColor3 = origImg end
-
 		end)
 	end)
 end
@@ -201,8 +195,8 @@ function HoverModule:TriggerAction(target, actionIdentifier)
 		self.OnActionTriggered(target, actionIdentifier)
 	end
 	self:FlashHideShowAction(actionIdentifier)
-
 end
+
 -- Input handling
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
