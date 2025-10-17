@@ -1,0 +1,46 @@
+-- ReplicatedStorage.InteractionData
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local InteractRemote = ReplicatedStorage:WaitForChild("InteractRemote")
+
+local InteractionData = {}
+
+-- Example: Seat interaction
+InteractionData.Seat = {
+	actionText = "Interact with",
+	objectText = "Seat",
+	actions = {
+		{
+			key = "E",
+			label = "Sit Down",
+			identifier = "Sit Down"
+		}
+	}
+}
+
+-- Example: Door interaction
+InteractionData.Door = {
+	actionText = "Interact with",
+	objectText = "Door",
+	actions = {
+		{
+			key = "E",
+			label = "Open Door",
+			identifier = "Open Door"
+		}
+	}
+}
+
+-- Example: Code entry
+InteractionData.CodeEntry = {
+	actionText = "Interact with",
+	objectText = "Keypad",
+	actions = {
+		{
+			key = "E",
+			label = "Enter Code",
+			identifier = "EnterCode"
+		}
+	}
+}
+
+return InteractionData
