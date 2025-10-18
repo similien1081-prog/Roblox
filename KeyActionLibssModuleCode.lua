@@ -5,9 +5,14 @@ local SoundService = game:GetService("SoundService")
 
 -- Create success sound
 local successSound = SoundService.Sound
+local CoffeeSound = SoundService.Coffe
 
 function KeyActionLib:PlaySuccess()
 	successSound:Play()
+end
+
+function KeyActionLib:PlayCoffe()
+	CoffeeSound:Play()
 end
 
 function KeyActionLib:PlayAnimation(character, animationId)
@@ -21,7 +26,7 @@ end
 function KeyActionLib:ToggleObject(object, duration)
 	local initialState = object.CanCollide
 	object.CanCollide = not initialState
-	wait(duration)
+	task.wait(duration)
 	object.CanCollide = initialState
 end
 
