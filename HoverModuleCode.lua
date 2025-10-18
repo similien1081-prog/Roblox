@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
 
 -- Modules
 local InteractionData = require(ReplicatedStorage:WaitForChild("InteractionData"))
@@ -21,6 +22,14 @@ local currentTarget = nil
 local mousePosition = Vector2.new(0, 0)
 local currentActions = {}
 local actionRows = {}
+local processingTimers = {}
+local partStates = {}
+
+-- Success Sound
+local successSound = Instance.new("Sound")
+successSound.SoundId = "rbxassetid://876939830" -- Change to your sound ID
+successSound.Volume = 0.5
+successSound.Parent = SoundService
 
 -- UI References
 local Screengui = player:WaitForChild("PlayerGui"):WaitForChild("MouseInteractUI")
@@ -29,7 +38,7 @@ local actionText = mainFrame:WaitForChild("ActionText")
 local objectText = mainFrame:WaitForChild("ObjectText")
 local rowsFrame = mainFrame:WaitForChild("Rows")
 local RowTemplate = mainFrame:WaitForChild("RowTemplate")
-
+local UIListLayout = mainFrame:WaitForChild("UIListLayout")
 -- Initialize
 RowTemplate.Visible = false
 
@@ -40,6 +49,7 @@ local function clearRows()
 			child:Destroy()
 		end
 	end
+	actionRows = {}
 end
 
 local function getActionRowCount()
@@ -52,24 +62,23 @@ local function getActionRowCount()
 	return count
 end
 
-local function createRow(actionData, callback)
+local function createRow(actionData)
 	local row = RowTemplate:Clone()
 	row.Name = "Row_" .. tostring(getActionRowCount() + 1)
 
 	local keyLabel = row:FindFirstChild("Key")
 	local actionLabel = row:FindFirstChild("Label")
 
-	if keyLabel then keyLabel.Text = actionData.key or "" end
+	if keyLabel then keyLabel.Text = actionData.key.Name or "" end
 	if actionLabel then actionLabel.Text = actionData.label or "" end
 
 	row.Visible = true
 	row.Parent = rowsFrame
 
-	actionRows[actionData.identifier] = row
+	actionRows[actionData.label] = row
 
 	return row
 end
-
 
 local function isInRange(target)
 	if not target then return false end
@@ -83,7 +92,6 @@ local function isInRange(target)
 	return (humanoidRootPart.Position - target.Position).Magnitude <= MAX_DISTANCE
 end
 
--- CHANGED: Get interaction data from module instead of attributes
 local function getInteractionData(target)
 	local interactionType = target:GetAttribute("InteractionType")
 	if not interactionType then return nil end
@@ -106,52 +114,54 @@ function HoverModule:ShowUI(target)
 		return
 	end
 
-	-- CHANGED: Get data from module
 	local data = getInteractionData(target)
 	if not data then
 		self:HideUI()
 		return
 	end
 
-	actionText.Text = data.actionText or target.Name
-	objectText.Text = data.objectText or ""
+	local partState = partStates[target] or {}
 
-	clearRows()
-	currentActions = data.actions or {}
+	-- If processing, show processing state
+	if partState.isProcessing then
+		actionText.Text = partState.processingText or data.actionText
+		objectText.Text = partState.hideObjectText and "" or data.objectText
+		rowsFrame.Visible = not partState.hideRows
+		mainFrame.Visible = true
+		clearRows()
+		currentActions = {}
+		return
+	end
+
+	-- Use post-process state if available, otherwise use default
+	if partState.postProcessState then
+		actionText.Text = partState.postProcessState.actionText or data.actionText
+		objectText.Text = partState.postProcessState.objectText or data.objectText
+		currentActions = partState.postProcessState.actions or data.actions
+	else
+		actionText.Text = data.actionText or target.Name
+		objectText.Text = data.objectText or ""
+		currentActions = data.actions or {}
+	end
+
+	if objectText.Text == "" then
+		objectText.Visible = false
+	else
+		objectText.Visible = true
+	end
 
 	if #currentActions == 0 then
 		self:HideUI()
 		return
 	end
 
+	clearRows()
+
 	for _, action in ipairs(currentActions) do
-		createRow(
-			action,
-			function()
-				if isInRange(target) then
-					self:TriggerAction(target, action.identifier)
-				end
-			end
-		)
+		createRow(action)
 	end
 
-	local rowHeight = 28
-	local headerHeight = 56 
-	local visibleRowCount = #currentActions
-	local totalRowsHeight = visibleRowCount * rowHeight
-	local newFrameHeight = math.min(headerHeight + totalRowsHeight, 300) 
-
-	mainFrame.Size = UDim2.new(0, 360, 0, newFrameHeight)
-	rowsFrame.Size = UDim2.new(1, -12, 0, totalRowsHeight)
-
-	local rowIndex = 0
-	for _, row in ipairs(rowsFrame:GetChildren()) do
-		if row ~= RowTemplate and row.Visible then
-			row.Position = UDim2.new(0, 0, 0, rowIndex * rowHeight)
-			rowIndex += 1
-		end
-	end
-
+	rowsFrame.Visible = true
 	mainFrame.Visible = true
 end
 
@@ -162,22 +172,28 @@ function HoverModule:HideUI()
 	currentActions = {}
 end
 
-function HoverModule:FlashHideShowAction(actionIdentifier)
-	local row = actionRows[actionIdentifier]
+function HoverModule:FlashHideShowAction(actionLabel)
+	local row = actionRows[actionLabel]
 	if not row then return end
-
 	local function getField(name) return row:FindFirstChild(name) end
 	local label, image = getField("Label"), getField("ImageFrame")
 	local origLabel, origImg = label and label.TextColor3, image and image.ImageColor3
 	local yellow = Color3.fromRGB(255, 193, 40)
 
-	if label then label.TextColor3 = yellow end
-	if image then image.ImageColor3 = yellow end
+	if label then label.TextTransparency = 1 end
+	if image then image.ImageTransparency = 1 end
 
-	delay(0.08, function()
-		row.Visible = false
-		delay(0.08, function()
-			row.Visible = true
+	task.delay(0.08, function()
+		if label then 
+			label.TextColor3 = yellow
+			label.TextTransparency = 0 
+		end
+		if image then 
+			image.ImageColor3 = yellow
+			image.ImageTransparency = 0 
+		end
+
+		task.delay(0.08, function()
 			if label and origLabel then label.TextColor3 = origLabel end
 			if image and origImg then image.ImageColor3 = origImg end
 		end)
@@ -190,25 +206,90 @@ function HoverModule:UpdatePosition(position)
 	end
 end
 
-function HoverModule:TriggerAction(target, actionIdentifier)
-	if self.OnActionTriggered then
-		self.OnActionTriggered(target, actionIdentifier)
+function HoverModule:PlaySuccessSound()
+	if successSound then
+		successSound:Play()
 	end
-	self:FlashHideShowAction(actionIdentifier)
+end
+
+function HoverModule:TriggerAction(target, action)
+	-- Play success sound
+	self:PlaySuccessSound()
+
+	-- Flash the action row FIRST
+	self:FlashHideShowAction(action.label)
+
+	-- Check if action has onActivate (needs validation/state changes)
+	if action.onActivate then
+		task.delay(0.16, function() -- Wait for flash animation to complete
+			-- Run onActivate FIRST (this validates)
+			local state = action.onActivate(player, target)
+
+			-- If state is nil, validation failed - DON'T fire callback
+			if not state then
+				return -- Stop here, don't execute callback or change state
+			end
+
+			-- Validation passed! NOW fire the callback to server
+			if action.callback then
+				action.callback(player, target)
+			end
+
+			-- Set processing state
+			partStates[target] = {
+				isProcessing = true,
+				processingText = state.processingText,
+				hideObjectText = state.hideObjectText,
+				hideRows = state.hideRows,
+			}
+
+			-- Cancel any existing timer for this part
+			if processingTimers[target] then
+				task.cancel(processingTimers[target])
+				processingTimers[target] = nil
+			end
+
+			-- Refresh UI to show processing state
+			self:ShowUI(target)
+
+			-- Set up timer to end processing state
+			local thePart = target
+			processingTimers[thePart] = task.spawn(function()
+				task.wait(state.processingDuration or 0)
+				if partStates[thePart] then
+					partStates[thePart].isProcessing = false
+					partStates[thePart] = {
+						postProcessState = state.postProcessState,
+					}
+					if currentTarget == thePart then
+						HoverModule:ShowUI(thePart)
+					end
+				end
+				processingTimers[thePart] = nil
+			end)
+		end)
+	else
+		-- No onActivate means no validation needed, fire callback immediately
+		if action.callback then
+			action.callback(player, target)
+		end
+	end
 end
 
 -- Input handling
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if not currentTarget then return end
+	if partStates[currentTarget] and partStates[currentTarget].isProcessing then return end
+	if #currentActions == 0 then return end
 
 	if input.UserInputType == Enum.UserInputType.Keyboard then
-		local key = input.KeyCode.Name
+		local key = input.KeyCode
 		-- Check current actions for matching key
 		for _, action in ipairs(currentActions) do
-			if action.key:upper() == key:upper() then
+			if action.key == key then
 				if isInRange(currentTarget) then
-					HoverModule:TriggerAction(currentTarget, action.identifier)
+					HoverModule:TriggerAction(currentTarget, action)
 				end
 				break
 			end
