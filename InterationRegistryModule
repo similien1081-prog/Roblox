@@ -1,0 +1,46 @@
+-- ReplicatedStorage.InteractionRegistry
+local InteractionRegistry = {}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+InteractionRegistry.Registry = {
+	Seat = "SeatInteraction",
+	Door = "DoorInteraction",
+	CodeEntry = "CodeEntryInteraction",
+	Machine = "EspressoMachineInteraction",
+	test = "Test",
+	DriverDoor = "VehicleDoorInteraction"
+}
+
+-- Get UI data by loading the interaction module and pulling its UIData
+function InteractionRegistry:GetUIData(interactionType)
+	local module = self:GetInteractionModule(interactionType)
+	if module and module.UIData then
+		return module.UIData
+	end
+	warn("No UIData found for interaction type:", interactionType)
+	return nil
+end
+
+-- Lazy-load and get the interaction module
+function InteractionRegistry:GetInteractionModule(interactionType)
+	local moduleName = self.Registry[interactionType]
+	if not moduleName then
+		warn("No interaction module registered for type:", interactionType)
+		return nil
+	end
+
+	local success, module = pcall(function()
+		local interactionsFolder = ReplicatedStorage:WaitForChild("Interactions", 5)
+		local moduleScript = interactionsFolder:WaitForChild(moduleName, 5)
+		return require(moduleScript)
+	end)
+
+	if not success or not module then
+		warn("Failed to load interaction module for type:", interactionType, "Error:", module)
+		return nil
+	end
+
+	return module
+end
+
+return InteractionRegistry
