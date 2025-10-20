@@ -1,3 +1,4 @@
+-- Updated HoverModule with lazy-loading support
 local HoverModule = {}
 
 -- Services
@@ -9,7 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 
 -- Modules
-local InteractionData = require(ReplicatedStorage:WaitForChild("InteractionData"))
+local InteractionRegistry = require(ReplicatedStorage:WaitForChild("InteractionRegistry"))
 
 -- Constants
 local MAX_DISTANCE = 12
@@ -39,6 +40,7 @@ local objectText = mainFrame:WaitForChild("ObjectText")
 local rowsFrame = mainFrame:WaitForChild("Rows")
 local RowTemplate = mainFrame:WaitForChild("RowTemplate")
 local UIListLayout = mainFrame:WaitForChild("UIListLayout")
+
 -- Initialize
 RowTemplate.Visible = false
 
@@ -92,11 +94,25 @@ local function isInRange(target)
 	return (humanoidRootPart.Position - target.Position).Magnitude <= MAX_DISTANCE
 end
 
-local function getInteractionData(target)
+-- Get UI data for hover display (lightweight, no module loading)
+local function getUIDataForHover(target)
 	local interactionType = target:GetAttribute("InteractionType")
 	if not interactionType then return nil end
 
-	return InteractionData[interactionType]
+	-- Get lightweight UI data from registry (doesn't load full module)
+	return InteractionRegistry:GetUIData(interactionType)
+end
+
+-- Lazy-load interaction module and get actions (only called on interaction)
+local function getActionsForInteraction(target)
+	local interactionType = target:GetAttribute("InteractionType")
+	if not interactionType then return nil end
+
+	-- Lazy-load the interaction module
+	local interactionModule = InteractionRegistry:GetInteractionModule(interactionType)
+	if not interactionModule then return nil end
+
+	return interactionModule.Actions or {}
 end
 
 function HoverModule:ShowUI(target)
@@ -114,7 +130,8 @@ function HoverModule:ShowUI(target)
 		return
 	end
 
-	local data = getInteractionData(target)
+	-- Get UI data from registry (lightweight, no module loading)
+	local data = getUIDataForHover(target)
 	if not data then
 		self:HideUI()
 		return
@@ -137,11 +154,12 @@ function HoverModule:ShowUI(target)
 	if partState.postProcessState then
 		actionText.Text = partState.postProcessState.actionText or data.actionText
 		objectText.Text = partState.postProcessState.objectText or data.objectText
-		currentActions = partState.postProcessState.actions or data.actions
+		currentActions = partState.postProcessState.actions or {}
 	else
 		actionText.Text = data.actionText or target.Name
 		objectText.Text = data.objectText or ""
-		currentActions = data.actions or {}
+		-- Get actions only when showing UI (lazy-load here)
+		currentActions = getActionsForInteraction(target) or {}
 	end
 
 	if objectText.Text == "" then
