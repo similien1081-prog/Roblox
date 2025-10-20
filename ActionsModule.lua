@@ -56,39 +56,39 @@ ActionsModule["EnterCode"] = {
 
 ActionsModule["Add"] = {
 	validate = function(player, part)
-		-- Check if player has coffee beans
-		local backpack = player:FindFirstChild("Backpack")
 		local character = player.Character
-
-		local hasCoffeeBean = (backpack and backpack:FindFirstChild("CoffeeBean")) or 
-			(character and character:FindFirstChild("CoffeeBean"))
-
-		if not hasCoffeeBean then
-			return false, "You need coffee beans!"
+		if not character then
+			return false, "You need to be in the game!"
 		end
-
+		local equippedTool = character:FindFirstChildOfClass("Tool")
+		if not equippedTool or equippedTool.Name ~= "CoffeeBean" then
+			return false, "You need to be holding coffee beans!"
+		end
 		return true
 	end,
-
 	execute = function(player, part)
 		local machine = part.Parent
-		local backpack = player:FindFirstChild("Backpack")
 		local character = player.Character
-
-		local coffeeBeanTool = (backpack and backpack:FindFirstChild("CoffeeBean")) or 
-			(character and character:FindFirstChild("CoffeeBean"))
-
-		if coffeeBeanTool then
+		local Beam = machine.Pourer.BeamPart.Beam
+		local coffeeModel = machine:FindFirstChild("CoffeePartModel")
+		if coffeeModel then
+			for _, childPart in pairs(coffeeModel:GetDescendants()) do
+				if childPart:IsA("BasePart") then
+					childPart.Transparency = 0
+				end
+			end
+		end
+		Beam.Enabled = true
+		local equippedTool = character:FindFirstChildOfClass("Tool")
+		if equippedTool and equippedTool.Name == "CoffeeBean" then
 			print(player.Name .. " added coffee beans to " .. part.Name)
 			KeyActionLib:PlayCoffe()
-			--task.wait(0.2)
-			coffeeBeanTool:Destroy() -- Remove the item
-
+			equippedTool:Destroy()
 			machine:SetAttribute("IsProcessing", true)
-
-			task.delay(3, function()
+			task.delay(6, function()
 				machine:SetAttribute("IsProcessing", false)
 				machine:SetAttribute("HasEspresso", true)
+				Beam.Enabled = false
 			end)
 		end
 	end
@@ -106,10 +106,19 @@ ActionsModule["Collect"] = {
 	end,
 
 	execute = function(player, part)
-		local machine = part
-
+		local machine = part.Parent
 		if machine:GetAttribute("HasEspresso") then
 			print(player.Name .. " collected espresso from " .. part.Name)
+			
+			local coffeeModel = machine:FindFirstChild("CoffeePartModel")
+			if coffeeModel then
+				print("FOUND")
+				for _, childPart in pairs(coffeeModel:GetDescendants()) do
+					if childPart:IsA("BasePart") then
+						childPart.Transparency = 1
+					end
+				end
+			end
 
 			local espresso = game.ServerStorage:FindFirstChild("Espresso")
 			if espresso then
