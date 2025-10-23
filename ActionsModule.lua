@@ -131,4 +131,179 @@ ActionsModule["Collect"] = {
 	end
 }
 
+
+-- Add these to your existing ActionsModule
+
+ActionsModule["Enter Vehicle"] = {
+	validate = function(player, part)
+		local vehicle = part.Parent
+		if not vehicle then
+			return false, "Vehicle not found!"
+		end
+
+		-- Check if vehicle is locked
+		if vehicle:GetAttribute("IsLocked") then
+			return false, "🔒 Vehicle is locked!"
+		end
+
+		-- Check if vehicle seat is available
+		local vehicleSeat = vehicle:FindFirstChild("DriveSeat")
+		if vehicleSeat and vehicleSeat.Occupant then
+			return false, "Someone is already driving!"
+		end
+
+		return true
+	end,
+
+	execute = function(player, part)
+		local vehicle = part.Parent
+		local vehicleSeat = vehicle:FindFirstChild("DriveSeat")
+
+		if not player.Character then return end
+		local humanoid = player.Character:FindFirstChild("Humanoid")
+
+		if vehicleSeat and humanoid then
+			vehicleSeat:Sit(humanoid)
+			print(player.Name .. " entered vehicle: " .. vehicle.Name)
+		end
+	end
+}
+
+ActionsModule["Lock Vehicle"] = {
+	validate = function(player, part)
+		local vehicle = part.Parent
+		if not vehicle then
+			return false, "Vehicle not found!"
+		end
+
+		-- Already locked?
+		if vehicle:GetAttribute("IsLocked") then
+			return false, "Vehicle is already locked!"
+		end
+
+		-- Optional: Check if player is the owner
+		local owner = vehicle:GetAttribute("Owner")
+		if owner and owner ~= player.Name then
+			return false, "You don't own this vehicle!"
+		end
+
+		return true
+	end,
+
+	execute = function(player, part)
+		local vehicle = part.Parent
+		vehicle:SetAttribute("IsLocked", true)
+
+		-- Optional: Play lock sound
+		local lockSound = vehicle:FindFirstChild("LockSound")
+		if lockSound then
+			lockSound:Play()
+		end
+
+		print(player.Name .. " locked vehicle: " .. vehicle.Name)
+	end
+}
+
+ActionsModule["Unlock Vehicle"] = {
+	validate = function(player, part)
+		local vehicle = part.Parent
+		if not vehicle then
+			return false, "Vehicle not found!"
+		end
+
+		-- Already unlocked?
+		if not vehicle:GetAttribute("IsLocked") then
+			return false, "Vehicle is already unlocked!"
+		end
+
+		-- Optional: Check if player is the owner
+		local owner = vehicle:GetAttribute("Owner")
+		if owner and owner ~= player.Name then
+			return false, "You don't own this vehicle!"
+		end
+
+		return true
+	end,
+
+	execute = function(player, part)
+		local vehicle = part.Parent
+		vehicle:SetAttribute("IsLocked", false)
+
+		-- Optional: Play unlock sound
+		local unlockSound = vehicle:FindFirstChild("UnlockSound")
+		if unlockSound then
+			unlockSound:Play()
+		end
+
+		print(player.Name .. " unlocked vehicle: " .. vehicle.Name)
+	end
+}
+
+-- Add to your existing ActionsModule
+
+ActionsModule["Open Door"] = {
+	validate = function(player, part)
+		local door = part.Parent
+		if not door then
+			return false, "Door not found!"
+		end
+
+		-- Re-validate access on server (IMPORTANT!)
+		local allowedTeams = door:GetAttribute("AllowedTeams")
+		if allowedTeams then
+			print("")
+			if not player.Team then
+				return false, "🚫 You need to be on a team!"
+			end
+
+			local hasAccess = false
+			for teamName in string.gmatch(allowedTeams, "[^,]+") do
+				teamName = teamName:match("^%s*(.-)%s*$") -- Trim whitespace
+				if teamName == player.Team.Name then
+					hasAccess = true
+					break
+				end
+			end
+
+			if not hasAccess then
+				return false, "🚫 Your team doesn't have access!"
+			end
+		end
+
+		-- Check AllowAll attribute
+		local allowAll = door:GetAttribute("AllowAll")
+		if allowAll == false then
+			return false, "🚫 Door is locked!"
+		end
+
+		return true
+	end,
+
+	execute = function(player, part)
+		local door = part.Parent
+		local doorPart = door:FindFirstChild("Door")
+
+		if doorPart then
+			local TweenService = game:GetService("TweenService")
+
+			-- Store original position
+			local originalCFrame = doorPart.CFrame
+
+			-- Open animation
+			local openCFrame = doorPart.CFrame * CFrame.Angles(0, math.rad(90), 0)
+			local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			local openTween = TweenService:Create(doorPart, tweenInfo, {CFrame = openCFrame})
+			openTween:Play()
+
+			print(player.Name .. " opened secure door: " .. door.Name)
+
+			-- Close after 3 seconds
+			task.delay(3, function()
+				local closeTween = TweenService:Create(doorPart, tweenInfo, {CFrame = originalCFrame})
+				closeTween:Play()
+			end)
+		end
+	end
+}
+
 return ActionsModule
