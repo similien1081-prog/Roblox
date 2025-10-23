@@ -1,4 +1,4 @@
--- Updated HoverModule with lazy-loading support
+-- Updated HoverModule with generic attribute listening
 local HoverModule = {}
 
 -- Services
@@ -25,10 +25,11 @@ local currentActions = {}
 local actionRows = {}
 local processingTimers = {}
 local partStates = {}
+local attributeConnections = {} -- Store attribute change connections
 
 -- Success Sound
 local successSound = Instance.new("Sound")
-successSound.SoundId = "rbxassetid://876939830" -- Change to your sound ID
+successSound.SoundId = "rbxassetid://876939830"
 successSound.Volume = 0.5
 successSound.Parent = SoundService
 
@@ -99,8 +100,8 @@ local function getUIDataForHover(target)
 	local interactionType = target:GetAttribute("InteractionType")
 	if not interactionType then return nil end
 
-	-- Get lightweight UI data from registry (doesn't load full module)
-	return InteractionRegistry:GetUIData(interactionType)
+	-- Pass player and part for dynamic UI
+	return InteractionRegistry:GetUIData(interactionType, player, target)
 end
 
 -- Lazy-load interaction module and get actions (only called on interaction)
@@ -108,13 +109,45 @@ local function getActionsForInteraction(target)
 	local interactionType = target:GetAttribute("InteractionType")
 	if not interactionType then return nil end
 
-	-- Lazy-load the interaction module
-	local interactionModule = InteractionRegistry:GetInteractionModule(interactionType)
-	if not interactionModule then return nil end
-
-	return interactionModule.Actions or {}
+	-- Get filtered actions based on conditions
+	return InteractionRegistry:GetAvailableActions(interactionType, player, target)
 end
 
+-- NEW: Setup generic attribute change listener for ANY attribute
+local function setupAttributeListener(target)
+	-- Clean up existing connections for this target
+	if attributeConnections[target] then
+		for _, connection in ipairs(attributeConnections[target]) do
+			connection:Disconnect()
+		end
+		attributeConnections[target] = nil
+	end
+
+	local connections = {}
+
+	-- Listen to AttributeChanged event (fires for ANY attribute change)
+	local targetConnection = target.AttributeChanged:Connect(function(attributeName)
+		-- Refresh UI if this is the current target
+		if currentTarget == target then
+			HoverModule:ShowUI(target)
+		end
+	end)
+	table.insert(connections, targetConnection)
+
+	-- Also listen for parent's attributes (like vehicle or door model)
+	if target.Parent then
+		local parentConnection = target.Parent.AttributeChanged:Connect(function(attributeName)
+			if currentTarget == target then
+				HoverModule:ShowUI(target)
+			end
+		end)
+		table.insert(connections, parentConnection)
+	end
+
+	attributeConnections[target] = connections
+end
+
+-- Replace the section around line 195
 function HoverModule:ShowUI(target)
 	if not target or not isInRange(target) then
 		self:HideUI()
@@ -130,7 +163,7 @@ function HoverModule:ShowUI(target)
 		return
 	end
 
-	-- Get UI data from registry (lightweight, no module loading)
+	-- Get UI data from registry
 	local data = getUIDataForHover(target)
 	if not data then
 		self:HideUI()
@@ -168,7 +201,18 @@ function HoverModule:ShowUI(target)
 		objectText.Visible = true
 	end
 
+	-- NEW: Check if we should show UI without actions
 	if #currentActions == 0 then
+		-- Check if the module wants to show UI even without actions (e.g., "Access Restricted")
+		if data.showUIWithoutActions then
+			mainFrame.Visible = true
+			rowsFrame.Visible = false
+
+			-- Setup listener even without actions (in case access changes)
+			setupAttributeListener(target)
+			return
+		end
+
 		self:HideUI()
 		return
 	end
@@ -181,6 +225,9 @@ function HoverModule:ShowUI(target)
 
 	rowsFrame.Visible = true
 	mainFrame.Visible = true
+
+	-- Setup generic attribute change listeners
+	setupAttributeListener(target)
 end
 
 function HoverModule:HideUI()
@@ -188,6 +235,16 @@ function HoverModule:HideUI()
 	clearRows()
 	currentTarget = nil
 	currentActions = {}
+
+	-- Clean up all attribute connections
+	for target, connections in pairs(attributeConnections) do
+		for _, connection in ipairs(connections) do
+			if connection then
+				connection:Disconnect()
+			end
+		end
+	end
+	attributeConnections = {}
 end
 
 function HoverModule:FlashHideShowAction(actionLabel)
@@ -239,13 +296,13 @@ function HoverModule:TriggerAction(target, action)
 
 	-- Check if action has onActivate (needs validation/state changes)
 	if action.onActivate then
-		task.delay(0.16, function() -- Wait for flash animation to complete
+		task.delay(0.16, function()
 			-- Run onActivate FIRST (this validates)
 			local state = action.onActivate(player, target)
 
 			-- If state is nil, validation failed - DON'T fire callback
 			if not state then
-				return -- Stop here, don't execute callback or change state
+				return
 			end
 
 			-- Validation passed! NOW fire the callback to server
