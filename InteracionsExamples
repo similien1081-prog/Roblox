@@ -1,0 +1,228 @@
+-- ReplicatedStorage.Interactions.VehicleInteraction
+local VehicleInteraction = {}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local InteractRemote = ReplicatedStorage:WaitForChild("InteractRemote")
+
+-- Get available actions based on vehicle state
+function VehicleInteraction:GetAvailableActions(player, part)
+	local availableActions = {}
+
+	for _, action in ipairs(self.Actions) do
+		-- Check if action has a condition
+		if action.condition then
+			if action.condition(player, part) then
+				table.insert(availableActions, action)
+			end
+		else
+			-- No condition = always show
+			table.insert(availableActions, action)
+		end
+	end
+
+	return availableActions
+end
+
+VehicleInteraction.Actions = {
+	{
+		key = Enum.KeyCode.E,
+		label = "Enter",
+		-- Only show when vehicle is UNLOCKED
+		condition = function(player, part)
+			local vehicle = part.Parent
+			return not vehicle:GetAttribute("IsLocked")
+		end,
+		callback = function(player, part)
+			InteractRemote:FireServer(part, "Enter Vehicle")
+		end,
+	},
+	{
+		key = Enum.KeyCode.L,
+		label = "Lock",
+		-- Only show when vehicle is UNLOCKED
+		condition = function(player, part)
+			local vehicle = part.Parent
+			return not vehicle:GetAttribute("IsLocked")
+		end,
+		callback = function(player, part)
+			InteractRemote:FireServer(part, "Lock Vehicle")
+		end,
+	},
+	{
+		key = Enum.KeyCode.U,
+		label = "Unlock",
+		-- Only show when vehicle is LOCKED
+		condition = function(player, part)
+			local vehicle = part.Parent
+			return vehicle:GetAttribute("IsLocked") == true
+		end,
+		callback = function(player, part)
+			InteractRemote:FireServer(part, "Unlock Vehicle")
+		end,
+	},
+}
+
+-- Dynamic UI data based on vehicle state
+function VehicleInteraction:GetUIData(player, part)
+	local vehicle = part.Parent
+	local isLocked = vehicle:GetAttribute("IsLocked")
+
+	return {
+		actionText = "Vehicle Door (Driver)",
+		objectText = isLocked and "This vehicle is locked" or "",
+	}
+end
+
+return VehicleInteraction
+
+
+
+
+-- ReplicatedStorage.Interactions.SeatInteraction
+-- Handles all seat interaction logic
+
+local SeatInteraction = {}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local InteractRemote = ReplicatedStorage:WaitForChild("InteractRemote")
+
+-- Define the actions available for seat interactions
+SeatInteraction.Actions = {
+	{
+		key = Enum.KeyCode.E,
+		label = "Sit Down",
+		callback = function(player, part)
+			InteractRemote:FireServer(part, "Sit Down")
+		end,
+	},
+}
+
+-- UI metadata for this interaction
+SeatInteraction.UIData = {
+	actionText = "Interact with",
+	objectText = "Seat",
+}
+
+return SeatInteraction
+
+
+
+
+-- ReplicatedStorage.Interactions.SimpleEspressoMachine
+-- Handles simple espresso machine without complex validation
+
+local SimpleEspressoMachine = {}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local InteractRemote = ReplicatedStorage:WaitForChild("InteractRemote")
+
+-- Define the actions available for simple espresso machine interactions
+SimpleEspressoMachine.Actions = {
+	{
+		key = Enum.KeyCode.E,
+		label = "Use Machine",
+		callback = function(player, part)
+			InteractRemote:FireServer(part, "UseMachine")
+		end,
+	},
+	{
+		key = Enum.KeyCode.F,
+		label = "Refill Water",
+		callback = function(player, part)
+			InteractRemote:FireServer(part, "RefillWater")
+		end,
+	},
+	{
+		key = Enum.KeyCode.R,
+		label = "Empty Grounds",
+		callback = function(player, part)
+			InteractRemote:FireServer(part, "EmptyGrounds")
+		end,
+	},
+}
+
+-- UI metadata for this interaction
+SimpleEspressoMachine.UIData = {
+	actionText = "Espresso Machine",
+	objectText = "Interact with",
+}
+
+return SimpleEspressoMachine
+
+
+
+
+
+
+
+
+-- ReplicatedStorage.Interactions.EspressoMachineInteraction
+-- Handles espresso machine interaction logic with validation
+
+local EspressoMachineInteraction = {}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local InteractRemote = ReplicatedStorage:WaitForChild("InteractRemote")
+local InteractValidate = ReplicatedStorage:WaitForChild("InteractValidate")
+
+-- Define the actions available for espresso machine interactions
+EspressoMachineInteraction.Actions = {
+	{
+		key = Enum.KeyCode.E,
+		label = "Add",
+		callback = function(player, part)
+			InteractRemote:FireServer(part, "Add")
+		end,
+		onActivate = function(player, part)
+			-- Validate with server BEFORE showing processing state
+			local success, errorMessage = InteractValidate:InvokeServer(part, "Add")
+			if not success then
+				warn("Cannot add: " .. (errorMessage or "Unknown error"))
+				return nil -- Don't change state
+			end
+			-- If validation passed, show processing state
+			return {
+				processingText = "Espresso Machine",
+				hideObjectText = true,
+				hideRows = true,
+				processingDuration = 6.2,
+				postProcessState = {
+					actionText = "Espresso Machine",
+					objectText = "",
+					actions = {
+						{
+							key = Enum.KeyCode.E,
+							label = "Collect",
+							callback = function(player, part)
+								InteractRemote:FireServer(part, "Collect")
+							end,
+							onActivate = function(player, part)
+								-- Validate collection
+								local success, errorMessage = InteractValidate:InvokeServer(part, "Collect")
+								if not success then
+									warn("Cannot collect: " .. (errorMessage or "Unknown error"))
+									return nil
+								end
+								return {
+									processingText = "Espresso Machine",
+									hideObjectText = false,
+									hideRows = false,
+									processingDuration = 0,
+									postProcessState = {
+										actionText = "Espresso Machine",
+										objectText = "This will result in espresso",
+										actions = EspressoMachineInteraction.Actions,
+									},
+								}
+							end,
+						},
+					},
+				},
+			}
+		end,
+	},
+}
+
+-- UI metadata for this interaction
+EspressoMachineInteraction.UIData = {
+	actionText = "Espresso Machine",
+	objectText = "This will result in espresso",
+}
+
+return EspressoMachineInteraction
