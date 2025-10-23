@@ -4,21 +4,51 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 InteractionRegistry.Registry = {
 	Seat = "SeatInteraction",
-	Door = "DoorInteraction",
 	CodeEntry = "CodeEntryInteraction",
 	Machine = "EspressoMachineInteraction",
 	test = "Test",
-	DriverDoor = "VehicleDoorInteraction"
+	Vehicle = "VehicleInteraction", -- NEW
+	TeamDoor = "TeamDoorInteraction", -- NEW\
+	CoffeTest = "Coffetestr"
 }
 
--- Get UI data by loading the interaction module and pulling its UIData
-function InteractionRegistry:GetUIData(interactionType)
+-- Get UI data (now supports dynamic functions)
+function InteractionRegistry:GetUIData(interactionType, player, part)
 	local module = self:GetInteractionModule(interactionType)
-	if module and module.UIData then
+	if not module then
+		warn("No module found for interaction type:", interactionType)
+		return nil
+	end
+
+	-- Check if module has dynamic GetUIData function
+	if module.GetUIData and type(module.GetUIData) == "function" then
+		return module:GetUIData(player, part)
+	end
+
+	-- Otherwise use static UIData
+	if module.UIData then
 		return module.UIData
 	end
+
 	warn("No UIData found for interaction type:", interactionType)
 	return nil
+end
+
+-- Get available actions (filtered by conditions)
+function InteractionRegistry:GetAvailableActions(interactionType, player, part)
+	local module = self:GetInteractionModule(interactionType)
+	if not module then
+		warn("No module found for interaction type:", interactionType)
+		return {}
+	end
+
+	-- Check if module has GetAvailableActions function
+	if module.GetAvailableActions and type(module.GetAvailableActions) == "function" then
+		return module:GetAvailableActions(player, part)
+	end
+
+	-- Otherwise return all actions
+	return module.Actions or {}
 end
 
 -- Lazy-load and get the interaction module
