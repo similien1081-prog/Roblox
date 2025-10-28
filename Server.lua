@@ -5,11 +5,10 @@ local InteractRemote = ReplicatedStorage:FindFirstChild("InteractRemote")
 local InteractValidate = ReplicatedStorage:FindFirstChild("InteractValidate")
 local ActionsModule = require(ReplicatedStorage:WaitForChild("Actions"))
 
--- Shared validation logic
-local function validateRequest(player, part, actionName)
+-- Shared validation logic - NOW ACCEPTS EXTRA PARAMETERS
+local function validateRequest(player, part, actionName, ...)
 	if not part or not part.Parent then return false, "Invalid part" end
 	if not player.Character then return false, "No character" end
-
 	local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
 	if not humanoidRootPart then return false, "No HumanoidRootPart" end
 
@@ -24,34 +23,33 @@ local function validateRequest(player, part, actionName)
 		return false, "Action not found"
 	end
 
-	-- If action has a validate function, use it
+	-- If action has a validate function, use it WITH EXTRA PARAMETERS
 	if action.validate then
-		return action.validate(player, part)
+		return action.validate(player, part, ...)
 	end
 
 	-- No validate function means always allowed
 	return true
 end
 
--- Handle validation requests
-InteractValidate.OnServerInvoke = function(player, part, actionName)
-	return validateRequest(player, part, actionName)
+-- Handle validation requests - NOW ACCEPTS EXTRA PARAMETERS
+InteractValidate.OnServerInvoke = function(player, part, actionName, ...)
+	return validateRequest(player, part, actionName, ...)
 end
 
--- Handle action execution
-InteractRemote.OnServerEvent:Connect(function(player, part, actionName)
-	-- Validate first
-	local success, errorMessage = validateRequest(player, part, actionName)
-
+-- Handle action execution - NOW ACCEPTS EXTRA PARAMETERS
+InteractRemote.OnServerEvent:Connect(function(player, part, actionName, ...)
+	-- Validate first WITH EXTRA PARAMETERS
+	local success, errorMessage = validateRequest(player, part, actionName, ...)
 	if not success then
 		warn(player.Name .. " failed validation: " .. (errorMessage or "Unknown"))
 		return
 	end
 
-	-- Execute the action
+	-- Execute the action WITH EXTRA PARAMETERS
 	local action = ActionsModule[actionName]
 	if action and action.execute then
-		action.execute(player, part)
+		action.execute(player, part, ...)
 	else
 		warn("Action '" .. actionName .. "' has no execute function!")
 	end
