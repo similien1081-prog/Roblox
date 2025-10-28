@@ -1,4 +1,4 @@
--- Updated HoverModule with generic attribute listening
+-- Optimized HoverModule with hold duration support + performance improvements
 local HoverModule = {}
 
 -- Services
@@ -13,8 +13,14 @@ local SoundService = game:GetService("SoundService")
 local InteractionRegistry = require(ReplicatedStorage:WaitForChild("InteractionRegistry"))
 
 -- Constants
-local MAX_DISTANCE = 12
+local MAX_DISTANCE = 7
 local INTERACT_TAG = "Interactable"
+local PROGRESS_UPDATE_RATE = 1/30 -- 30 FPS for progress bar updates
+
+-- DEFAULT COLORS
+local DEFAULT_ACTION_TEXT_COLOR = Color3.fromRGB(213, 213, 213)
+local DEFAULT_OBJECT_TEXT_COLOR = Color3.fromRGB(217, 217, 217)
+local DEFAULT_LABEL_COLOR = Color3.fromRGB(255, 255, 255)
 
 -- State
 local player = Players.LocalPlayer
@@ -25,7 +31,21 @@ local currentActions = {}
 local actionRows = {}
 local processingTimers = {}
 local partStates = {}
-local attributeConnections = {} -- Store attribute change connections
+local attributeConnections = {}
+local feedbackActive = false
+local lastProgressUpdate = 0
+
+-- Hold state management (OPTIMIZED)
+local holdState = {
+	active = false,
+	action = nil,
+	row = nil,
+	startTime = 0,
+	duration = 0,
+	progressConnection = nil,
+	keyHeld = nil,
+	target = nil
+}
 
 -- Success Sound
 local successSound = Instance.new("Sound")
@@ -44,6 +64,80 @@ local UIListLayout = mainFrame:WaitForChild("UIListLayout")
 
 -- Initialize
 RowTemplate.Visible = false
+
+local function updateProgressBar(row, progress)
+	if not row then return end
+	local imageFrame = row:FindFirstChild("ImageFrame")
+	if not imageFrame then return end
+
+	local fill = imageFrame:FindFirstChild("ProgressFill")
+	if not fill then return end
+
+	-- Skip redundant updates (less than 1% change)
+	local currentProgress = fill.Size.Y.Scale
+	if math.abs(currentProgress - progress) < 0.01 then return end
+
+	fill.Size = UDim2.new(1, 0, progress, 0)
+	fill.Position = UDim2.new(0, 0, 1, 0)
+	fill.AnchorPoint = Vector2.new(0, 1)
+	fill.Visible = progress > 0
+end
+
+local function clearProgressBar(row)
+	if not row then return end
+	local imageFrame = row:FindFirstChild("ImageFrame")
+	if not imageFrame then return end
+
+	local fill = imageFrame:FindFirstChild("ProgressFill")
+	if fill then
+		fill.Size = UDim2.new(1, 0, 0, 0)
+		fill.Position = UDim2.new(0, 0, 1, 0)
+		fill.AnchorPoint = Vector2.new(0, 1)
+		fill.Visible = false -- FIXED: Force invisible
+	end
+end
+
+local function highlightRowDuringHold(row, enable)
+	if not row then return end
+	local label = row:FindFirstChild("Label")
+	local yellow = Color3.fromRGB(255, 193, 40)
+
+	if enable then
+		-- Highlight yellow
+		if label then
+			label.TextColor3 = yellow
+		end
+	else
+		-- Restore to default white
+		if label then
+			label.TextColor3 = DEFAULT_LABEL_COLOR
+		end
+	end
+end
+
+local function stopHoldAction(completed)
+	if not holdState.active then return end
+
+	if holdState.progressConnection then
+		holdState.progressConnection:Disconnect()
+		holdState.progressConnection = nil
+	end
+
+	if holdState.row then
+		highlightRowDuringHold(holdState.row, false)
+
+		-- Clear progress bar immediately regardless of completion
+		clearProgressBar(holdState.row)
+	end
+
+	holdState.active = false
+	holdState.action = nil
+	holdState.row = nil
+	holdState.keyHeld = nil
+	holdState.target = nil
+	holdState.startTime = 0
+	holdState.duration = 0
+end
 
 -- Helper Functions
 local function clearRows()
@@ -65,15 +159,22 @@ local function getActionRowCount()
 	return count
 end
 
-local function createRow(actionData)
+local function createRow(actionData, defaultLabelColor)
 	local row = RowTemplate:Clone()
 	row.Name = "Row_" .. tostring(getActionRowCount() + 1)
 
 	local keyLabel = row:FindFirstChild("Key")
 	local actionLabel = row:FindFirstChild("Label")
 
-	if keyLabel then keyLabel.Text = actionData.key.Name or "" end
-	if actionLabel then actionLabel.Text = actionData.label or "" end
+	if keyLabel then 
+		keyLabel.Text = actionData.key.Name or ""
+	end
+
+	if actionLabel then 
+		actionLabel.Text = actionData.label or ""
+		local labelColor = actionData.labelColor or defaultLabelColor or DEFAULT_LABEL_COLOR
+		actionLabel.TextColor3 = labelColor
+	end
 
 	row.Visible = true
 	row.Parent = rowsFrame
@@ -95,27 +196,21 @@ local function isInRange(target)
 	return (humanoidRootPart.Position - target.Position).Magnitude <= MAX_DISTANCE
 end
 
--- Get UI data for hover display (lightweight, no module loading)
 local function getUIDataForHover(target)
 	local interactionType = target:GetAttribute("InteractionType")
 	if not interactionType then return nil end
 
-	-- Pass player and part for dynamic UI
 	return InteractionRegistry:GetUIData(interactionType, player, target)
 end
 
--- Lazy-load interaction module and get actions (only called on interaction)
 local function getActionsForInteraction(target)
 	local interactionType = target:GetAttribute("InteractionType")
 	if not interactionType then return nil end
 
-	-- Get filtered actions based on conditions
 	return InteractionRegistry:GetAvailableActions(interactionType, player, target)
 end
 
--- NEW: Setup generic attribute change listener for ANY attribute
 local function setupAttributeListener(target)
-	-- Clean up existing connections for this target
 	if attributeConnections[target] then
 		for _, connection in ipairs(attributeConnections[target]) do
 			connection:Disconnect()
@@ -125,16 +220,13 @@ local function setupAttributeListener(target)
 
 	local connections = {}
 
-	-- Listen to AttributeChanged event (fires for ANY attribute change)
 	local targetConnection = target.AttributeChanged:Connect(function(attributeName)
-		-- Refresh UI if this is the current target
 		if currentTarget == target then
 			HoverModule:ShowUI(target)
 		end
 	end)
 	table.insert(connections, targetConnection)
 
-	-- Also listen for parent's attributes (like vehicle or door model)
 	if target.Parent then
 		local parentConnection = target.Parent.AttributeChanged:Connect(function(attributeName)
 			if currentTarget == target then
@@ -144,10 +236,28 @@ local function setupAttributeListener(target)
 		table.insert(connections, parentConnection)
 	end
 
+	local cleanupConnection = target.AncestryChanged:Connect(function()
+		if not target:IsDescendantOf(workspace) then
+			if attributeConnections[target] then
+				for _, conn in ipairs(attributeConnections[target]) do
+					conn:Disconnect()
+				end
+				attributeConnections[target] = nil
+			end
+
+			if processingTimers[target] then
+				task.cancel(processingTimers[target])
+				processingTimers[target] = nil
+			end
+
+			partStates[target] = nil
+		end
+	end)
+	table.insert(connections, cleanupConnection)
+
 	attributeConnections[target] = connections
 end
 
--- Replace the section around line 195
 function HoverModule:ShowUI(target)
 	if not target or not isInRange(target) then
 		self:HideUI()
@@ -163,7 +273,6 @@ function HoverModule:ShowUI(target)
 		return
 	end
 
-	-- Get UI data from registry
 	local data = getUIDataForHover(target)
 	if not data then
 		self:HideUI()
@@ -172,7 +281,6 @@ function HoverModule:ShowUI(target)
 
 	local partState = partStates[target] or {}
 
-	-- If processing, show processing state
 	if partState.isProcessing then
 		actionText.Text = partState.processingText or data.actionText
 		objectText.Text = partState.hideObjectText and "" or data.objectText
@@ -183,7 +291,6 @@ function HoverModule:ShowUI(target)
 		return
 	end
 
-	-- Use post-process state if available, otherwise use default
 	if partState.postProcessState then
 		actionText.Text = partState.postProcessState.actionText or data.actionText
 		objectText.Text = partState.postProcessState.objectText or data.objectText
@@ -191,9 +298,14 @@ function HoverModule:ShowUI(target)
 	else
 		actionText.Text = data.actionText or target.Name
 		objectText.Text = data.objectText or ""
-		-- Get actions only when showing UI (lazy-load here)
 		currentActions = getActionsForInteraction(target) or {}
 	end
+
+	local actionTextColor = data.actionTextColor or DEFAULT_ACTION_TEXT_COLOR
+	actionText.TextColor3 = actionTextColor
+
+	local objectTextColor = data.objectTextColor or DEFAULT_OBJECT_TEXT_COLOR
+	objectText.TextColor3 = objectTextColor
 
 	if objectText.Text == "" then
 		objectText.Visible = false
@@ -201,14 +313,10 @@ function HoverModule:ShowUI(target)
 		objectText.Visible = true
 	end
 
-	-- NEW: Check if we should show UI without actions
 	if #currentActions == 0 then
-		-- Check if the module wants to show UI even without actions (e.g., "Access Restricted")
 		if data.showUIWithoutActions then
 			mainFrame.Visible = true
 			rowsFrame.Visible = false
-
-			-- Setup listener even without actions (in case access changes)
 			setupAttributeListener(target)
 			return
 		end
@@ -219,14 +327,15 @@ function HoverModule:ShowUI(target)
 
 	clearRows()
 
+	local defaultLabelColor = data.labelColor
+
 	for _, action in ipairs(currentActions) do
-		createRow(action)
+		createRow(action, defaultLabelColor)
 	end
 
 	rowsFrame.Visible = true
 	mainFrame.Visible = true
 
-	-- Setup generic attribute change listeners
 	setupAttributeListener(target)
 end
 
@@ -236,7 +345,8 @@ function HoverModule:HideUI()
 	currentTarget = nil
 	currentActions = {}
 
-	-- Clean up all attribute connections
+	stopHoldAction(false)
+
 	for target, connections in pairs(attributeConnections) do
 		for _, connection in ipairs(connections) do
 			if connection then
@@ -250,34 +360,38 @@ end
 function HoverModule:FlashHideShowAction(actionLabel)
 	local row = actionRows[actionLabel]
 	if not row then return end
-	local function getField(name) return row:FindFirstChild(name) end
-	local label, image = getField("Label"), getField("ImageFrame")
+	feedbackActive = true
+
+	local label, image = row:FindFirstChild("Label"), row:FindFirstChild("ImageFrame")
 	local origLabel, origImg = label and label.TextColor3, image and image.ImageColor3
 	local yellow = Color3.fromRGB(255, 193, 40)
+	local origSize, origAnchor, origPos = image and image.Size, image and image.AnchorPoint, image and image.Position
 
 	if label then label.TextTransparency = 1 end
 	if image then image.ImageTransparency = 1 end
 
 	task.delay(0.08, function()
-		if label then 
-			label.TextColor3 = yellow
-			label.TextTransparency = 0 
-		end
-		if image then 
-			image.ImageColor3 = yellow
-			image.ImageTransparency = 0 
+		if label then label.TextColor3, label.TextTransparency = yellow, 0 end
+		if image then
+			local centerPos = UDim2.new(origPos.X.Scale + (0.5 - origAnchor.X) * origSize.X.Scale, origPos.X.Offset + (0.5 - origAnchor.X) * origSize.X.Offset,
+				origPos.Y.Scale + (0.5 - origAnchor.Y) * origSize.Y.Scale, origPos.Y.Offset + (0.5 - origAnchor.Y) * origSize.Y.Offset)
+			image.AnchorPoint, image.Position, image.ImageColor3, image.ImageTransparency = Vector2.new(0.5, 0.5), centerPos, yellow, 0
+			image.Size = UDim2.new(origSize.X.Scale * 0.7, origSize.X.Offset * 0.7, origSize.Y.Scale * 0.7, origSize.Y.Offset * 0.7)
 		end
 
 		task.delay(0.08, function()
 			if label and origLabel then label.TextColor3 = origLabel end
-			if image and origImg then image.ImageColor3 = origImg end
+			if image and origImg then
+				image.ImageColor3, image.AnchorPoint, image.Position, image.Size = origImg, origAnchor, origPos, origSize
+			end
+			feedbackActive = false
 		end)
 	end)
 end
 
 function HoverModule:UpdatePosition(position)
 	if mainFrame.Visible then
-		mainFrame.Position = UDim2.new(0, position.X + 25, 0, position.Y + 38)
+		mainFrame.Position = UDim2.new(0, position.X + 25, 0, position.Y + 80)
 	end
 end
 
@@ -287,30 +401,31 @@ function HoverModule:PlaySuccessSound()
 	end
 end
 
-function HoverModule:TriggerAction(target, action)
-	-- Play success sound
+function HoverModule:CompleteAction(target, action)
 	self:PlaySuccessSound()
-
-	-- Flash the action row FIRST
 	self:FlashHideShowAction(action.label)
 
-	-- Check if action has onActivate (needs validation/state changes)
 	if action.onActivate then
 		task.delay(0.16, function()
-			-- Run onActivate FIRST (this validates)
-			local state = action.onActivate(player, target)
+			local success, result = pcall(function()
+				return action.onActivate(player, target)
+			end)
 
-			-- If state is nil, validation failed - DON'T fire callback
+			if not success then
+				warn("Action onActivate failed:", result)
+				return
+			end
+
+			local state = result
+
 			if not state then
 				return
 			end
 
-			-- Validation passed! NOW fire the callback to server
 			if action.callback then
 				action.callback(player, target)
 			end
 
-			-- Set processing state
 			partStates[target] = {
 				isProcessing = true,
 				processingText = state.processingText,
@@ -318,16 +433,13 @@ function HoverModule:TriggerAction(target, action)
 				hideRows = state.hideRows,
 			}
 
-			-- Cancel any existing timer for this part
 			if processingTimers[target] then
 				task.cancel(processingTimers[target])
 				processingTimers[target] = nil
 			end
 
-			-- Refresh UI to show processing state
 			self:ShowUI(target)
 
-			-- Set up timer to end processing state
 			local thePart = target
 			processingTimers[thePart] = task.spawn(function()
 				task.wait(state.processingDuration or 0)
@@ -344,30 +456,102 @@ function HoverModule:TriggerAction(target, action)
 			end)
 		end)
 	else
-		-- No onActivate means no validation needed, fire callback immediately
 		if action.callback then
 			action.callback(player, target)
 		end
 	end
 end
 
+function HoverModule:StartHoldAction(target, action, row)
+	if holdState.active then
+		stopHoldAction(false)
+	end
+
+	if not target or not action or not row then
+		warn("Invalid hold action parameters")
+		return
+	end
+
+	holdState.active = true
+	holdState.action = action
+	holdState.row = row
+	holdState.keyHeld = action.key
+	holdState.target = target
+	holdState.startTime = tick()
+	holdState.duration = action.holdDuration
+	lastProgressUpdate = 0
+
+	-- ADDED: Highlight label during hold
+	highlightRowDuringHold(row, true)
+
+	updateProgressBar(row, 0)
+
+	-- Use Heartbeat for better performance (more consistent than RenderStepped)
+	holdState.progressConnection = RunService.Heartbeat:Connect(function(deltaTime)
+		if not holdState.active then 
+			stopHoldAction(false)
+			return 
+		end
+
+		-- Throttle updates to 30 FPS
+		local now = tick()
+		if now - lastProgressUpdate < PROGRESS_UPDATE_RATE then
+			return
+		end
+		lastProgressUpdate = now
+
+		-- Validate target still exists and is in range
+		if not holdState.target or not isInRange(holdState.target) then
+			stopHoldAction(false)
+			return
+		end
+
+		local elapsed = now - holdState.startTime
+		local progress = math.clamp(elapsed / holdState.duration, 0, 1)
+
+		updateProgressBar(holdState.row, progress)
+
+		if progress >= 1 then
+			local completedTarget = holdState.target
+			local completedAction = holdState.action
+			stopHoldAction(true)
+			self:CompleteAction(completedTarget, completedAction)
+		end
+	end)
+end
+
 -- Input handling
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
+	if feedbackActive then return end
 	if not currentTarget then return end
 	if partStates[currentTarget] and partStates[currentTarget].isProcessing then return end
 	if #currentActions == 0 then return end
 
 	if input.UserInputType == Enum.UserInputType.Keyboard then
 		local key = input.KeyCode
-		-- Check current actions for matching key
+
 		for _, action in ipairs(currentActions) do
 			if action.key == key then
 				if isInRange(currentTarget) then
-					HoverModule:TriggerAction(currentTarget, action)
+					local row = actionRows[action.label]
+
+					if action.holdDuration and action.holdDuration > 0 then
+						HoverModule:StartHoldAction(currentTarget, action, row)
+					else
+						HoverModule:CompleteAction(currentTarget, action)
+					end
 				end
 				break
 			end
+		end
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input, processed)
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		if holdState.active and holdState.keyHeld == input.KeyCode then
+			stopHoldAction(false)
 		end
 	end
 end)
@@ -379,7 +563,6 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 end)
 
--- Mouse movement detection using Mouse.Target
 RunService.RenderStepped:Connect(function()
 	local target = mouse.Target
 
@@ -392,7 +575,6 @@ RunService.RenderStepped:Connect(function()
 				HoverModule:HideUI()
 			end
 		else
-			-- Check if existing target is still in range
 			if not isInRange(target) then
 				HoverModule:HideUI()
 			end
@@ -402,11 +584,16 @@ RunService.RenderStepped:Connect(function()
 			HoverModule:HideUI()
 		end
 	end
+
+	-- Auto-cancel hold if out of range (additional safety check)
+	if holdState.active and holdState.target and not isInRange(holdState.target) then
+		stopHoldAction(false)
+	end
 end)
 
--- Cleanup
 player.CharacterRemoving:Connect(function()
 	HoverModule:HideUI()
+	stopHoldAction(false)
 end)
 
 return HoverModule
