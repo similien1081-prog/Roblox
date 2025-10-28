@@ -9,7 +9,12 @@ InteractionRegistry.Registry = {
 	test = "Test",
 	Vehicle = "VehicleInteraction", -- NEW
 	TeamDoor = "TeamDoorInteraction", -- NEW\
-	CoffeTest = "Coffetestr"
+	CoffeTest = "Coffetestr",
+	Pickup = "PickUp",
+	CoffeCup = "CoffeCup",
+	CoffeePots = "Coffeepots",
+	TrashBin = "TrashBin",
+	PassengerInteraction = "PassengerInteraction"
 }
 
 -- Get UI data (now supports dynamic functions)
