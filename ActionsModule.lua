@@ -239,7 +239,6 @@ ActionsModule["Unlock Vehicle"] = {
 	end
 }
 
--- Add to your existing ActionsModule
 
 ActionsModule["Open Door"] = {
 	validate = function(player, part)
@@ -302,6 +301,115 @@ ActionsModule["Open Door"] = {
 				local closeTween = TweenService:Create(doorPart, tweenInfo, {CFrame = originalCFrame})
 				closeTween:Play()
 			end)
+		end
+	end
+}
+
+ActionsModule["SelectCupSize"] = {
+	validate = function(player, part)
+		-- Always allow selecting a cup
+		return true
+	end,
+
+	execute = function(player, part, size)
+		if not size then
+			warn("⚠️ No cup size provided for SelectCupSize")
+			return
+		end
+
+		-- Find the Cups folder in ReplicatedStorage
+		local cupsFolder = game.ReplicatedStorage:FindFirstChild("Cups")
+		if not cupsFolder then
+			warn("⚠️ Cups folder not found in ReplicatedStorage!")
+			return
+		end
+
+		-- Find the matching cup (e.g. "16oz Cup")
+		local cupName = tostring(size) .. "oz Cup"
+		local cupTool = cupsFolder:FindFirstChild(cupName)
+
+		if not cupTool then
+			warn("⚠️ Cup tool not found for size: " .. cupName)
+			return
+		end
+
+		-- Clone and give it to the player
+		local cupClone = cupTool:Clone()
+		cupClone.Parent = player.Backpack
+
+		print(player.Name .. " received a " .. cupName)
+	end
+}
+
+
+ActionsModule["DisposeItem"] = {
+	validate = function(player, part)
+		local character = player.Character
+		if not character then 
+			return false, "No character found!" 
+		end
+
+		-- Check if player is holding a tool
+		local equippedTool = character:FindFirstChildOfClass("Tool")
+		if not equippedTool then
+			return false, "You're not holding anything to throw away!"
+		end
+
+		return true
+	end,
+	execute = function(player, part)
+		local character = player.Character
+
+		-- Remove equipped tool
+		local equippedTool = character:FindFirstChildOfClass("Tool")
+		if equippedTool then
+			local itemName = equippedTool.Name
+			equippedTool:Destroy()
+			print(player.Name .. " threw away: " .. itemName)
+		end
+	end
+}
+
+ActionsModule["Enter Passenger"] = {
+	validate = function(player, part)
+		local vehicle = part.Parent
+		if not vehicle then
+			return false, "Vehicle not found!"
+		end
+
+		-- Check if vehicle is locked
+		if vehicle:GetAttribute("IsLocked") then
+			return false, "🔒 Vehicle is locked!"
+		end
+
+		-- Get which seat this door corresponds to
+		local seatNumber = part:GetAttribute("SeatNumber") or 1
+		local seatName = "PassengerSeat" .. seatNumber
+		local passengerSeat = vehicle:FindFirstChild(seatName)
+
+		if not passengerSeat then
+			return false, "Seat not found!"
+		end
+
+		if passengerSeat.Occupant then
+			return false, "This seat is occupied!"
+		end
+
+		return true
+	end,
+
+	execute = function(player, part)
+		local vehicle = part.Parent
+		local seatNumber = part:GetAttribute("SeatNumber") or 1
+		local seatName = "PassengerSeat" .. seatNumber
+		local passengerSeat = vehicle:FindFirstChild(seatName)
+
+		if not player.Character then return end
+		local humanoid = player.Character:FindFirstChild("Humanoid")
+
+		if passengerSeat and humanoid then
+			passengerSeat:Sit(humanoid)
+			print(player.Name .. " entered passenger seat " .. seatNumber .. " in " .. vehicle.Name)
 		end
 	end
 }
