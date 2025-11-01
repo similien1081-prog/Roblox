@@ -1,4 +1,3 @@
--- Optimized HoverModule with hold duration support + performance improvements
 local HoverModule = {}
 
 -- Services
@@ -220,19 +219,28 @@ local function setupAttributeListener(target)
 
 	local connections = {}
 
-	local targetConnection = target.AttributeChanged:Connect(function(attributeName)
+	local function handleAttributeChange()
 		if currentTarget == target then
-			HoverModule:ShowUI(target)
+			-- Don't refresh UI while feedback animation is active
+			if feedbackActive then
+				-- Wait until feedback is done, then refresh
+				task.spawn(function()
+					repeat task.wait() until not feedbackActive
+					if currentTarget == target then
+						HoverModule:ShowUI(target)
+					end
+				end)
+			else
+				HoverModule:ShowUI(target)
+			end
 		end
-	end)
+	end
+
+	local targetConnection = target.AttributeChanged:Connect(handleAttributeChange)
 	table.insert(connections, targetConnection)
 
 	if target.Parent then
-		local parentConnection = target.Parent.AttributeChanged:Connect(function(attributeName)
-			if currentTarget == target then
-				HoverModule:ShowUI(target)
-			end
-		end)
+		local parentConnection = target.Parent.AttributeChanged:Connect(handleAttributeChange)
 		table.insert(connections, parentConnection)
 	end
 
